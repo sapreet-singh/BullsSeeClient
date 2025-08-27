@@ -1,4 +1,4 @@
-package com.example.bullssee
+package com.example.bullsseeclient
 
 import android.content.Context
 import android.provider.CallLog
@@ -6,20 +6,27 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.google.gson.Gson
 
-class CallLogWorker(appContext: Context, params: WorkerParameters) : Worker(appContext, params) {
+class CallLogWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
-        val cursor = appContext.contentResolver.query(CallLog.Calls.CONTENT_URI, null, null, null, null)
+        val cursor = applicationContext.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            null,
+            null,
+            null,
+            null
+        )
+
         val callLogs = mutableListOf<String>()
-        cursor?.use {
-            while (it.moveToNext()) {
-                val number = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
-                val date = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
+        cursor?.use { c ->
+            while (c.moveToNext()) {
+                val number = c.getString(c.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
+                val date = c.getString(c.getColumnIndexOrThrow(CallLog.Calls.DATE))
                 callLogs.add("Number: $number, Date: $date")
             }
         }
-        cursor?.close()
+
         val json = Gson().toJson(callLogs)
-        // Upload json to BullsSeeAPI (implement similar to LocationService)
+        // TODO: Upload json to BullsSeeAPI
         return Result.success()
     }
 }
