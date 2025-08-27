@@ -1,4 +1,4 @@
-package com.example.bullssee.ui.theme
+package com.example.bullsseeclient.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -1,4 +1,4 @@
-package com.example.bullssee
+package com.example.bullsseeclient
 
 import android.Manifest
 import android.os.Bundle
@@ -15,8 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.bullssee.ui.theme.BullsSeeTheme
+import com.example.bullsseeclient.ui.theme.BullsSeeTheme
 
 class MainActivity : ComponentActivity() {
     private val locationPermissionRequest = registerForActivityResult(

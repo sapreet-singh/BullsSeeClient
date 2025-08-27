@@ -1,4 +1,4 @@
-package com.example.bullssee.services;
+package com.example.bullsseeclient.services;
 
 import android.content.Context;
 import androidx.work.Worker;
