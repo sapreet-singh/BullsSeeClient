@@ -18,9 +18,8 @@ class CallLogWorker(appContext: Context, params: WorkerParameters) : Worker(appC
             }
         }
         cursor?.close()
-
         val json = Gson().toJson(callLogs)
-        // Upload json to BullsSeeAPI (similar to uploadLocation)
+        // Upload json to BullsSeeAPI (implement similar to LocationService)
         return Result.success()
     }
 }

@@ -14,6 +14,11 @@ import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 
 class LocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -38,17 +43,17 @@ class LocationService : Service() {
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle("BullsSeeClient")
         .setContentText("Tracking location...")
-        .setSmallIcon(R.drawable.ic_notification)
+        .setSmallIcon(android.R.drawable.ic_dialog_info) // Temporary placeholder
         .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
         .build()
 
     private fun startLocationUpdates() {
         val locationRequest = LocationRequest.create().apply {
-            interval = 60000 // 1 minute
-            fastestInterval = 30000 // 30 seconds
+            interval = 60000
+            fastestInterval = 30000
             priority = LocationRequest.PRIORITY_HIGH_ACCURACY
         }
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             fusedLocationClient.requestLocationUpdates(locationRequest, object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult?) {
                     locationResult?.lastLocation?.let { location ->
@@ -60,14 +65,12 @@ class LocationService : Service() {
     }
 
     private fun uploadLocation(latitude: Double, longitude: Double) {
-        // Placeholder for Retrofit call to BullsSeeAPI
-        val apiService = Retrofit.Builder()
+        val retrofit = Retrofit.Builder()
             .baseUrl("https://your-bullssee-api-url/")
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(ApiService::class.java)
-
-        val payload = DataPayload(latitude, longitude, 1) // deviceId = 1
+        val apiService = retrofit.create(ApiService::class.java)
+        val payload = DataPayload(latitude, longitude, 1)
         apiService.uploadData(payload).enqueue(object : Callback<Void> {
             override fun onResponse(call: Call<Void>, response: Response<Void>) {
                 if (response.isSuccessful) {
@@ -84,7 +87,7 @@ class LocationService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        fusedLocationClient.removeLocationUpdates()
+        fusedLocationClient.removeLocationUpdates(object : LocationCallback() {}) // Temporary fix
     }
 }
 

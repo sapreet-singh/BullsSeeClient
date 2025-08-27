@@ -1,0 +1,10 @@
+<resources>
+    <!-- Base application theme for View-based components and manifest -->
+    <style name="Theme.BullsSee" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryDark</item>
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+</resources>
