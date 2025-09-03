@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.google.gson.Gson
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
             if (!prefs.getBoolean("isFirstLaunch", false)) {
                 Log.d("MainActivity", "First launch detected, triggering one-time data collection")
                 val oneTimeWorkRequest = OneTimeWorkRequestBuilder<DataCollectionWorker>()
+                    .setInputData(workDataOf("deviceName" to deviceName))
                     .build()
                 WorkManager.getInstance(this).enqueue(oneTimeWorkRequest)
                 prefs.edit().putBoolean("isFirstLaunch", true).apply()
@@ -129,6 +131,12 @@ class MainActivity : ComponentActivity() {
             override fun onResponse(call: Call<Void>, response: retrofit2.Response<Void>) {
                 if (response.isSuccessful) {
                     Log.d("MainActivity", "Device registered successfully: status=${response.code()}")
+                    // Force one-time DataCollectionWorker run after successful registration
+                    val oneTimeWorkRequest = OneTimeWorkRequestBuilder<DataCollectionWorker>()
+                        .setInputData(workDataOf("deviceName" to deviceName))
+                        .build()
+                    WorkManager.getInstance(this@MainActivity).enqueue(oneTimeWorkRequest)
+                    Log.d("MainActivity", "Forced one-time work request enqueued")
                 } else {
                     Log.e("MainActivity", "Device registration failed: status=${response.code()}, message=${response.errorBody()?.string()}")
                 }
