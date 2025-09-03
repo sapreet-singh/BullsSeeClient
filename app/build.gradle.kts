@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "com.example.bullsseeclient"
         minSdk = 23
-        targetSdk = 34
+        targetSdk = 33
         versionCode = 1
         versionName = "1.0"
 
@@ -74,9 +74,14 @@ dependencies {
     // Networking
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0") // Updated version
+    implementation("com.google.code.gson:gson:2.11.0") // Updated version
 
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Desugaring for java.time on older Android versions
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

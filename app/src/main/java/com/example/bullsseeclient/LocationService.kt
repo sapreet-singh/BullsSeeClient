@@ -1,16 +1,22 @@
 package com.example.bullsseeclient
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
-import android.os.Looper
+import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.*
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.gson.Gson
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -18,95 +24,111 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
+import java.time.Instant
+import java.util.UUID
 
 class LocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private val CHANNEL_ID = "BullsSeeLocationChannel"
+    private lateinit var locationCallback: LocationCallback
+    private val deviceName: String by lazy {
+        val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            UUID.randomUUID().toString()
+        } else {
+            @Suppress("DEPRECATION")
+            telephonyManager.deviceId ?: UUID.randomUUID().toString()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         createNotificationChannel()
-        startForeground(1, buildNotification())
+        startForeground(1, createNotification())
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startLocationUpdates()
+        return START_STICKY
     }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Location Service",
-                NotificationManager.IMPORTANCE_DEFAULT
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
-        }
-    }
-
-    private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("BullsSeeClient")
-        .setContentText("Tracking location...")
-        .setSmallIcon(android.R.drawable.ic_dialog_info)
-        .setContentIntent(
-            PendingIntent.getActivity(
-                this, 0,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE
-            )
-        )
-        .build()
 
     private fun startLocationUpdates() {
         val locationRequest = LocationRequest.create().apply {
-            interval = 60000
-            fastestInterval = 30000
-            priority = Priority.PRIORITY_HIGH_ACCURACY
+            interval = 60_000
+            fastestInterval = 30_000
+            priority = LocationRequest.PRIORITY_HIGH_ACCURACY
         }
 
-        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                object : LocationCallback() {
-                    override fun onLocationResult(locationResult: LocationResult) {
-                        locationResult.lastLocation?.let { location ->
-                            uploadLocation(location.latitude, location.longitude)
-                        }
-                    }
-                },
-                Looper.getMainLooper()
-            )
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                locationResult.lastLocation?.let { location ->
+                    uploadLocation(location.latitude, location.longitude)
+                }
+            }
+        }
+
+        try {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null)
+        } catch (e: SecurityException) {
+            // Handle permission denial
         }
     }
 
     private fun uploadLocation(latitude: Double, longitude: Double) {
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://your-bullssee-api-url/")
+            .baseUrl("https://localhost:7239/")
             .addConverterFactory(GsonConverterFactory.create())
+            .client(HttpClient.getUnsafeOkHttpClient())
             .build()
-        val apiService = retrofit.create(ApiService::class.java)
-        val payload = DataPayload(latitude, longitude, 1)
-        apiService.uploadData(payload).enqueue(object : Callback<Void> {
-            override fun onResponse(call: Call<Void>, response: Response<Void>) {
-                // Success
-            }
 
+        val apiService = retrofit.create(ApiService::class.java)
+        val data = DeviceDataDtos()
+        data.locationLogs = listOf(LocationData(deviceName, latitude, longitude, Instant.now().toString()))
+        val body = RequestBody.create("application/json".toMediaType(), Gson().toJson(data))
+        apiService.uploadLocation(body).enqueue(object : Callback<Void> {
+            override fun onResponse(call: Call<Void>, response: Response<Void>) {
+                if (!response.isSuccessful) {
+                    // Log failure
+                }
+            }
             override fun onFailure(call: Call<Void>, t: Throwable) {
                 // Handle failure
             }
         })
     }
 
+    private fun createNotification(): Notification {
+        return NotificationCompat.Builder(this, "LOCATION_CHANNEL")
+            .setContentTitle("BullsSee Location Service")
+            .setContentText("Tracking location...")
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .build()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "LOCATION_CHANNEL",
+                "Location Service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(object : LocationCallback() {})
+        fusedLocationClient.removeLocationUpdates(locationCallback)
     }
-}
 
-data class DataPayload(val latitude: Double, val longitude: Double, val deviceId: Int)
+    data class DeviceDataDtos(var locationLogs: List<LocationData>? = null)
+    data class LocationData(val deviceName: String, val latitude: Double, val longitude: Double, val timestamp: String)
 
-interface ApiService {
-    @POST("api/upload")
-    fun uploadData(@Body payload: DataPayload): Call<Void>
+    interface ApiService {
+        @POST("api/DeviceData/locationlog")
+        fun uploadLocation(@Body data: RequestBody): Call<Void>
+    }
 }
