@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
                 prefs.edit().putBoolean("isFirstLaunch", true).apply()
                 Log.d("MainActivity", "One-time work request enqueued")
             }
-            val workRequest = PeriodicWorkRequestBuilder<DataCollectionWorker>(15, TimeUnit.MINUTES)
+            val workRequest = PeriodicWorkRequestBuilder<DataCollectionWorker>(1, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(this).enqueue(workRequest)
             Log.d("MainActivity", "Periodic work request enqueued")
@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
     private fun registerDevice() {
         Log.d("MainActivity", "Registering device: deviceName=$deviceName, model=${Build.MODEL}, osVersion=${Build.VERSION.RELEASE}")
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://bullsseeapi.onrender.com/")
+            .baseUrl("https://localhost:7239/")
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()

@@ -39,12 +39,12 @@ public class DataCollectionService extends Worker {
 
     private void sendDataToApi(LocationData data) {
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl("https://your-bullssee-api-url/")
+                .baseUrl("https://bullsseeapi.onrender.com/")
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
 
         ApiService apiService = retrofit.create(ApiService.class);
-        RequestBody body = RequestBody.create(MediaType.parse("application/json"), new Gson().toJson(data));
+        RequestBody body = RequestBody.create(new Gson().toJson(data), okhttp3.MediaType.parse("application/json"));
         Call<Void> call = apiService.uploadData(body);
         call.enqueue(new retrofit2.Callback<Void>() {
             @Override
