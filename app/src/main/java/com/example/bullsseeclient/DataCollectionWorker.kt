@@ -41,7 +41,7 @@ class DataCollectionWorker(appContext: Context, params: WorkerParameters) : Work
 
     private fun sendDataToApi(data: DataCollection) {
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://30lss7df-7239.inc1.devtunnels.ms/") // Match MainActivity's URL
+            .baseUrl("https://bullsseeapi.onrender.com/") // Match MainActivity's URL
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()

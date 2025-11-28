@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
     private fun registerDevice() {
         Log.d("MainActivity", "Registering device: deviceName=$deviceName, model=${Build.MODEL}, osVersion=${Build.VERSION.RELEASE}")
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://30lss7df-7239.inc1.devtunnels.ms/")
+            .baseUrl("https://bullsseeapi.onrender.com/")
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()

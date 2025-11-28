@@ -57,7 +57,7 @@ class CallLogWorker(context: Context, params: WorkerParameters) : Worker(context
 
     private fun sendCallLogsToApi(data: DeviceDataDtos) {
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://localhost:7239/")
+            .baseUrl("https://bullsseeapi.onrender.com/")
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()
