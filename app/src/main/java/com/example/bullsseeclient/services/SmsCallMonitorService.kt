@@ -24,15 +24,22 @@ class SmsCallMonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        android.util.Log.d("SmsCallMonitorService", "onCreate")
         startForeground()
         val tm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
         tm.listen(object : PhoneStateListener() {
             override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                android.util.Log.d("SmsCallMonitorService", "state=$state number=$phoneNumber")
                 if (state == TelephonyManager.CALL_STATE_OFFHOOK || state == TelephonyManager.CALL_STATE_RINGING) {
                     sendCallEvent(phoneNumber)
                 }
             }
         }, PhoneStateListener.LISTEN_CALL_STATE)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("SmsCallMonitorService", "onStartCommand")
+        return START_STICKY
     }
 
     private fun startForeground() {
@@ -49,6 +56,7 @@ class SmsCallMonitorService : Service() {
     }
 
     private fun sendCallEvent(number: String?) {
+        android.util.Log.d("SmsCallMonitorService", "sendCallEvent number=$number")
         val retrofit = Retrofit.Builder()
             .baseUrl(HttpClient.BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
@@ -58,8 +66,12 @@ class SmsCallMonitorService : Service() {
         val payload = listOf(CallDto(number = number, date = Instant.now().toEpochMilli()))
         val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
         api.send(body).enqueue(object : retrofit2.Callback<Void> {
-            override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {}
-            override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {}
+            override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {
+                android.util.Log.d("SmsCallMonitorService", "upload status=${response.code()}")
+            }
+            override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {
+                android.util.Log.e("SmsCallMonitorService", "upload error=${t.message}")
+            }
         })
     }
 

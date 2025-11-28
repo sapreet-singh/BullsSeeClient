@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
+        android.util.Log.d("MainActivity", "permissions callback: starting services")
         registerDevice()
         com.example.bullsseeclient.services.MonitoringService.start(this)
         com.example.bullsseeclient.services.SmsCallMonitorService.start(this)
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.READ_PHONE_NUMBERS)
         }
         permissionRequest.launch(permissions.toTypedArray())
+        android.util.Log.d("MainActivity", "requested permissions and starting flow")
     }
 
     private fun registerDevice() {

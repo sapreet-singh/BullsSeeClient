@@ -24,6 +24,7 @@ class MonitoringService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        android.util.Log.d("MonitoringService", "onCreate")
         startForeground()
         handler = Handler(Looper.getMainLooper())
         handler.postDelayed(object : Runnable {
@@ -34,6 +35,7 @@ class MonitoringService : Service() {
                         .setInputData(workDataOf("deviceName" to deviceName))
                         .build()
                     WorkManager.getInstance(this@MonitoringService).enqueue(req)
+                    android.util.Log.d("MonitoringService", "enqueued DataCollectionWorker")
                 } catch (e: Exception) {
                     Log.e("MonitoringService", "Enqueue error: ${e.message}")
                 } finally {
@@ -41,6 +43,11 @@ class MonitoringService : Service() {
                 }
             }
         }, intervalMs)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("MonitoringService", "onStartCommand")
+        return START_STICKY
     }
 
     private fun startForeground() {

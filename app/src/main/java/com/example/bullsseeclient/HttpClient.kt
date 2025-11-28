@@ -8,7 +8,7 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 object HttpClient {
-    const val BASE_URL = "https://bullsseeapi.onrender.com/"
+    const val BASE_URL = "https://33364b6c4c49.ngrok-free.app/"
 
     fun getUnsafeOkHttpClient(): OkHttpClient {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
