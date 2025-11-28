@@ -38,6 +38,11 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissions.add(Manifest.permission.READ_PHONE_NUMBERS)
         }
+        if (Build.VERSION.SDK_INT >= 33) {
+            permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
         permissionRequest.launch(permissions.toTypedArray())
         android.util.Log.d("MainActivity", "requested permissions and starting flow")
     }

