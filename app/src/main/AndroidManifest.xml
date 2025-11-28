@@ -46,15 +46,6 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="phoneCall|dataSync"
-            android:stopWithTask="false" />
-
-        
-
-        
-
-        
-
-        
-            
+            android:stopWithTask="false" />    
     </application>
 </manifest>

