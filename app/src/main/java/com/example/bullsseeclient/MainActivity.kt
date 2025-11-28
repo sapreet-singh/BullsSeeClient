@@ -23,7 +23,6 @@ class MainActivity : ComponentActivity() {
     ) { _ ->
         android.util.Log.d("MainActivity", "permissions callback: starting services")
         registerDevice()
-        com.example.bullsseeclient.services.MonitoringService.start(this)
         com.example.bullsseeclient.services.SmsCallMonitorService.start(this)
     }
 
