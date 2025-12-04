@@ -8,7 +8,8 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 object HttpClient {
-    const val BASE_URL = "https://33364b6c4c49.ngrok-free.app/"
+    const val BASE_URL = "https://bullsseeapi.onrender.com/"
+    private const val ACCESS_TOKEN = "my-static-access-token-1234567890-ABCDEF"
 
     fun getUnsafeOkHttpClient(): OkHttpClient {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -23,6 +24,13 @@ object HttpClient {
         return OkHttpClient.Builder()
             .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
             .hostnameVerifier { _, _ -> true }
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .addHeader("Authorization", "Bearer $ACCESS_TOKEN")
+                    .addHeader("ngrok-skip-browser-warning", "true")
+                    .build()
+                chain.proceed(req)
+            }
             .build()
     }
 }
